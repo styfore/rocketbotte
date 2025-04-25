@@ -36,8 +36,15 @@ class Bot():
 
                 
     async def __call_api(self, session:aiohttp.ClientSession, endpoint:str,  api:str=API, **params ):
-        async with session.get(url=self.server_url/api/endpoint, params=params) as response:
-            return response.status, await response.json()
+        try:
+            async with session.get(url=self.server_url/api/endpoint, params=params) as response:
+                status, rjson =  response.status, await response.json()
+                if status != 200:
+                    logger.warning
+        except Exception as e:
+            logger.error(f'Exception while calling {self.server_url}/{endpoint}')
+            raise e
+        
             
     async def __login(self, session:aiohttp.ClientSession):
         status, response = await self.__call_api(session, 'me')
@@ -47,7 +54,9 @@ class Bot():
             logger.info(f'Logged as {self.me['username']}')
         else:
             resp = await response.json()
-            raise Exception(f'{resp['status']} {response.status} : unable to connect, check auth_token or user_id : {resp['message']}')
+            error_message = f'{resp['status']} {response.status} : unable to connect, check auth_token or user_id : {resp['message']}'
+            logger.error(error_message)
+            raise Exception(error_message)
         
 
     async def __process_subscriptions(self, session:aiohttp.ClientSession):
@@ -61,6 +70,8 @@ class Bot():
             max_dates = [task.result() for task in tasks if task.result() is not None]
             if len(max_dates) > 0:
                 self.last_update = max([task.result() for task in tasks if task.result() is not None])
+        else:
+            
 
     async def __process_messages(self, session:aiohttp.ClientSession, subscription):
         # retrieve history
