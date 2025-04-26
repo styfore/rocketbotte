@@ -29,7 +29,7 @@ class Message():
     
     @property
     def created_at(self) -> str:
-        return self.json.get('updated_at')
+        return self.json.get('ts')
 
 subscription_type = {'d' : 'dm', 'c' : 'channels', 'p': 'groups'}
 class RoomType(Enum):
