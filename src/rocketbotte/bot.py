@@ -32,7 +32,7 @@ class Bot():
             
             while self.status == Status.READY:
                 await self.__process_subscriptions(session)
-                asyncio.sleep(self.delay)
+                await asyncio.sleep(self.delay)
 
                 
     async def __call_api(self, session:aiohttp.ClientSession, endpoint:str,  api:str=API, **params ):
