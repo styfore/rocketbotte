@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from yarl import URL
 from enum import Enum
 from typing import Coroutine
-from .models import User, Message, Suscription
+from .models import User, Message, Subscriptions
 
 class Bot():
     API:str = 'api/v1'
@@ -52,7 +52,6 @@ class Bot():
         status, response = await self.__call_api(session, 'me')
         if status == 200:
             self.me = User(response)
-            print(self.me)
             self.status = Status.READY
             logger.info(f'Logged as {self.me.username}')
         else:
@@ -68,17 +67,18 @@ class Bot():
         if status == 200:
             tasks:list[asyncio.Task] = []
             async with asyncio.TaskGroup() as tg:
-                for subscription in subscriptions.get('update', []):
-                    tasks.append(tg.create_task(self.__process_messages(session, Suscription(subscription))))
+                for subscription in subscriptions.get('update', []):                
+                    tasks.append(tg.create_task(self.__process_messages(session, Subscriptions(subscription))))
+                    
             max_dates = [task.result() for task in tasks if task.result() is not None]
             if len(max_dates) > 0:
                 self.last_update = max([task.result() for task in tasks if task.result() is not None])
             
 
-    async def __process_messages(self, session:aiohttp.ClientSession, subscription:Suscription):
+    async def __process_messages(self, session:aiohttp.ClientSession, subscription:Subscriptions):
         # retrieve history
         max_date = self.last_update
-        status, history = await self.__call_api(session, f'{subscription.room_type.endpoint}.history', roomId=subscription.roomId, oldest=subscription.last_seen_activity)
+        status, history = await self.__call_api(session, f'{subscription.room_type.endpoint}.history', roomId=subscription.room_id, oldest=self.last_update)
         if status == 200:
             for message in history.get('messages', []):
                 message = Message(message)
