@@ -1,15 +1,14 @@
 import json, sys
 from loguru import logger 
 import asyncio, aiohttp, time
-from aiohttp import BasicAuth
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from yarl import URL
 from enum import Enum
-from typing import Any, Coro, Coroutine
+from typing import Coroutine
+from .models import User, Message, Suscription
+
 class Bot():
     API:str = 'api/v1'
-    subscription_type = {'d' : 'dm', 'c' : 'channels', 'p': 'groups'}
     def __init__(self, server_url:str, delay=1, command_prefix='!'):
         super().__init__()
         self.server_url = URL(server_url)
@@ -18,6 +17,7 @@ class Bot():
         self.last_update = str(datetime.now(timezone.utc).isoformat("T", "milliseconds")).split('+')[0]
         self.commands = {}
         self.events = {}
+        self.background_task = set()
         self.command_prefix = command_prefix
         if sys.platform == 'win32':
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -51,9 +51,10 @@ class Bot():
     async def __login(self, session:aiohttp.ClientSession):
         status, response = await self.__call_api(session, 'me')
         if status == 200:
-            self.me = response
+            self.me = User(response)
+            print(self.me)
             self.status = Status.READY
-            logger.info(f'Logged as {self.me['username']}')
+            logger.info(f'Logged as {self.me.username}')
         else:
             resp = await response.json()
             error_message = f'unable to connect, check auth_token or user_id : {resp['message']}'
@@ -68,25 +69,23 @@ class Bot():
             tasks:list[asyncio.Task] = []
             async with asyncio.TaskGroup() as tg:
                 for subscription in subscriptions.get('update', []):
-                    tasks.append(tg.create_task(self.__process_messages(session, subscription)))
+                    tasks.append(tg.create_task(self.__process_messages(session, Suscription(subscription))))
             max_dates = [task.result() for task in tasks if task.result() is not None]
             if len(max_dates) > 0:
                 self.last_update = max([task.result() for task in tasks if task.result() is not None])
             
 
-    async def __process_messages(self, session:aiohttp.ClientSession, subscription):
+    async def __process_messages(self, session:aiohttp.ClientSession, subscription:Suscription):
         # retrieve history
-        room_id = subscription['rid']
-        endpoint = self.subscription_type.get(subscription['t'])
         max_date = self.last_update
-        if endpoint is not None:    
-            status, history = await self.__call_api(session, f'{endpoint}.history', roomId=room_id, oldest=self.last_update)
-            if status == 200:
-                for message in history.get('messages', []):
-                    print(f'{message['u']['username']} : {message['msg']}')
-                    max_date = max(max_date, message['ts']) if message['ts'] is not None else max_date
-            else:
-                raise Exception(f'{history['status']} {history.status} : unable to connect, check auth_token or user_id : {history['message']}')
+        status, history = await self.__call_api(session, f'{subscription.room_type.endpoint}.history', roomId=subscription.roomId, oldest=subscription.last_seen_activity)
+        if status == 200:
+            for message in history.get('messages', []):
+                message = Message(message)
+                print(message)
+                max_date = max(max_date, message.created_at) if message.created_at is not None else max_date
+        else:
+            raise Exception(f'{history['status']} {history.status} : unable to connect, check auth_token or user_id : {history['message']}')
         return max_date
     
 
@@ -111,7 +110,9 @@ class Bot():
             
     def fire_event(self, name, *args, **kwargs):
         for event in self.events.get(name, []):
-            event(*args, **kwargs)
+            task = asyncio.current_task(event(*args, **kwargs))
+            self.background_task.add(task)
+            task.add_done_callback(self.background_task.discard)
                 
     def listen(self, name: str = None) :
         """A decorator that registers another function as an external
