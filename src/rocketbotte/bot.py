@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from yarl import URL
 from enum import Enum
 from typing import Coroutine
+from collections import deque
 from .models import User, Message, Subscriptions
 
 class RestBot():
@@ -14,11 +15,15 @@ class RestBot():
         self.status:Status= Status.OFF
         self.server_url = server_url
         self.auth_token = auth_token
+        self.command_prefix = command_prefix
+        
+        self.subscriptions:dict[str, Subscriptions] = {}
+        
         self.commands = {}
         self.events = {}
-        self.background_task = set()
         
-        self.command_prefix = command_prefix
+        self.background_task = set()
+        self.pending_requests = set()
 
     
     def run(self, auth_token:str):
@@ -57,20 +62,32 @@ class RestBot():
                 logger.info(f'Connected to {self.auth_token}')
                 self.status = Status.CONNECTED
                 await websocket.send(json.dumps({"msg": "method", 'id': 'login', "method": "login", "params":[{ "resume": self.auth_token}]}))
+                self.pending_requests.add('login')
                 
         elif self.status == Status.CONNECTED and message.get('id') == 'login':               
-            if message.get('id') == 'login':
+            if 'login' in self.pending_requests and message.get('id') == 'login':
                 logger.info(f'Logged as {message.get('result', {}).get('id')}')
+                self.pending_requests.remove('login')
                 self.status = Status.LOGGED
+
                 
     async def _subscribe(self, message:dict, websocket:ClientConnection):
         if self.status == Status.LOGGED:
-            if message.get('id') == 'subscribe':
-                pass
-            else:
-                
-                await websocket.send('{"msg": "method",  "method": "subscriptions/get",  "id": "subscribe", "params": []}')
-        
+            await websocket.send('{"msg": "method",  "method": "subscriptions/get",  "id": "get_subscriptions", "params": []}')
+            self.pending_requests.add('get_subscriptions')
+            self.status = Status.SUSCRIBING
+        elif 'get_subscriptions' in self.pending_requests and self.status == Status.SUSCRIBING:
+            subs = message.get('result', [])
+            logger.info(f'Suscribing to {len(subs)} rooms')
+            for sub in subs:
+                subscription = Subscriptions(sub)
+                self.subscriptions[subscription.room_id] = subscription
+                q =  {"msg": "sub", "id": f"retrieve_{subscription.room_id}", "name": "stream-room-messages", "params":[subscription.room_id, False ]}
+                await websocket.send(json.dumps(q))
+            
+            
+            
+
 
 
     async def __call_api(self, session:aiohttp.ClientSession, endpoint:str,  api:str=API, **params ):
@@ -185,6 +202,7 @@ class Status(Enum):
     OFF = 'OFF'
     CONNECTED = 'CONNECTED'
     LOGGED = 'LOGGED'
+    SUSCRIBING = 'SUSCRIBING'
     READY = 'READY'
                     
     
