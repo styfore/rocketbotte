@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 from rocketbotte import RestBot, Subscriptions, Message
-import asyncio,aiohttp,  os, sys
+import asyncio, os, sys
 from websockets.asyncio.client import connect
 from enum import Enum
 import json, time
