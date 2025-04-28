@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from rocketbotte import RestBot, Subscriptions, Message
+from rocketbotte import  Subscriptions, Message
 import asyncio, os, sys
 from websockets.asyncio.client import connect
 from enum import Enum
@@ -37,8 +37,7 @@ async def test2():
                         await websocket.send(json.dumps({"msg": "method", 'id': 'login', "method": "login", "params":[{ "resume": AUTH_TOKEN}]}))
                 else : 
                     if message.get('msg') == 'ping':
-                        #await websocket.send('{"msg": "pong"}')]
-                        await websocket.pong()
+                        await websocket.send('{"msg": "pong"}')
                         continue
                     
                     if status == Status.CONNECTED:               

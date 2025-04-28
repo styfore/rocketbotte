@@ -1,5 +1,5 @@
 from loguru import logger 
-import asyncio, json
+import asyncio, json, aiohttp
 from websockets.asyncio.client import connect,  ClientConnection
 from datetime import datetime, timezone
 from yarl import URL
@@ -8,7 +8,7 @@ from typing import Coroutine
 from collections import deque
 from .models import User, Message, Subscriptions
 
-class RestBot():
+class Bot():
     API:str = 'api/v1'
     def __init__(self,server_url:str, auth_token:str, delay=1, command_prefix='!'):
         super().__init__()
@@ -26,8 +26,8 @@ class RestBot():
         self.pending_requests = set()
 
     
-    def run(self, auth_token:str):
-        asyncio.run(self.__run(auth_token=auth_token))
+    def run(self):
+        asyncio.run(self.__run())
     
     async def __run(self):
         async for websocket in connect(self.server_url):
@@ -40,7 +40,7 @@ class RestBot():
                     message:dict = json.loads(message)
                     await self.pong(message, websocket)
                     await self._log_if_not(message, websocket)
-                            
+                    await self._subscribe(message, websocket)
             except Exception as e:
                 print(e)
                 continue
@@ -76,14 +76,26 @@ class RestBot():
             await websocket.send('{"msg": "method",  "method": "subscriptions/get",  "id": "get_subscriptions", "params": []}')
             self.pending_requests.add('get_subscriptions')
             self.status = Status.SUSCRIBING
-        elif 'get_subscriptions' in self.pending_requests and self.status == Status.SUSCRIBING:
-            subs = message.get('result', [])
-            logger.info(f'Suscribing to {len(subs)} rooms')
-            for sub in subs:
-                subscription = Subscriptions(sub)
-                self.subscriptions[subscription.room_id] = subscription
-                q =  {"msg": "sub", "id": f"retrieve_{subscription.room_id}", "name": "stream-room-messages", "params":[subscription.room_id, False ]}
-                await websocket.send(json.dumps(q))
+        elif self.status == Status.SUSCRIBING:
+            if 'get_subscriptions' in self.pending_requests and message.get('id') == 'get_subscriptions':
+                subs = message.get('result', [])
+                logger.info(f'Suscribing to {len(subs)} rooms')
+                for sub in subs:
+                    subscription = Subscriptions(sub)
+                    self.subscriptions[subscription.room_id] = subscription
+                    self.pending_requests.add(f'retrieve_{subscription.room_id}')
+                    q =  {"msg": "sub", "id": f"retrieve_{subscription.room_id}", "name": "stream-room-messages", "params":[subscription.room_id, False ]}
+                    await websocket.send(json.dumps(q))
+            elif message.get('msg') == 'ready' and message.get('subs') is not None and message.get('subs')[0] in self.pending_requests:
+                rid = message.get('subs')[0].split('_')[1]
+                self.pending_requests.remove(message.get('subs')[0])
+                logger.debug(f'watching {self.subscriptions[rid]}')
+                
+                if not any([pr.startswith('retrieve_') for pr in self.pending_requests]):
+                    logger.info('Bot ready and listenning')
+                    self.status = Status.READY
+                
+                
             
             
             
