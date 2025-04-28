@@ -1,3 +1,4 @@
+import traceback
 from loguru import logger 
 import asyncio, json, aiohttp
 from websockets.asyncio.client import connect,  ClientConnection
@@ -38,11 +39,16 @@ class Bot():
                 await self._connect(websocket)
                 async for message in websocket:
                     message:dict = json.loads(message)
+                    if self.status != Status.READY:
+                        await self._log_if_not(message, websocket)
+                        await self._subscribe(message, websocket)
+                        
                     await self.pong(message, websocket)
-                    await self._log_if_not(message, websocket)
-                    await self._subscribe(message, websocket)
+                    await self.__process_messages(message, websocket)
             except Exception as e:
-                print(e)
+                logger.error(e)
+                traceback.print_exc()
+                await asyncio.sleep(5)
                 continue
 
     async def _connect(self, websocket:ClientConnection):
@@ -55,6 +61,16 @@ class Bot():
         if message.get('msg') == 'ping':
             logger.trace(f'pong')
             await websocket.send('{"msg": "pong"}')
+            
+    async def __process_messages(self, message:dict, websocket:ClientConnection):
+        if message.get('collection') is not None and message.get('collection') == 'stream-room-messages':
+            if len(message.get('fields', {}).get('args')) == 1:
+                msg = Message(message.get('fields', {}).get('args'))
+                if msg.edited_at is None:
+                    print(msg)
+                    print(message)
+                else:
+                    print('edited')
     
     async def _log_if_not(self, message:dict, websocket:ClientConnection):
         if self.status == Status.OFF:
@@ -100,48 +116,7 @@ class Bot():
             
             
 
-
-
-    async def __call_api(self, session:aiohttp.ClientSession, endpoint:str,  api:str=API, **params ):
-        try:
-            async with session.get(url=self.server_url/api/endpoint, params=params) as response:
-                status, rjson =  response.status, await response.json()
-                if status != 200:
-                    logger.warning(f'{endpoint} return status {rjson['status']} {response.status} :  maybe check auth_token or user_id : {rjson['message']}')               
-                return status, rjson
-        except Exception as e:
-            logger.error(f'Exception while calling {self.server_url}/{endpoint}')
-            raise e
-        
-            
-    async def __login(self, session:aiohttp.ClientSession):
-        status, response = await self.__call_api(session, 'me')
-        if status == 200:
-            self.me = User(response)
-            self.status = Status.READY
-            logger.info(f'Logged as {self.me.username}')
-        else:
-            resp = await response.json()
-            error_message = f'unable to connect, check auth_token or user_id : {resp['message']}'
-            logger.error(error_message)
-            raise Exception(error_message)
-        
-
-    async def __process_subscriptions(self, session:aiohttp.ClientSession):
-        # get subscription channels to look for history
-        status, subscriptions = await self.__call_api(session, 'subscriptions.get')
-        if status == 200:
-            tasks:list[asyncio.Task] = []
-            async with asyncio.TaskGroup() as tg:
-                for subscription in subscriptions.get('update', []):                
-                    tasks.append(tg.create_task(self.__process_messages(session, Subscriptions(subscription))))
-                    
-            max_dates = [task.result() for task in tasks if task.result() is not None]
-            if len(max_dates) > 0:
-                self.last_update = max([task.result() for task in tasks if task.result() is not None])
-            
-
-    async def __process_messages(self, session:aiohttp.ClientSession, subscription:Subscriptions):
+    async def __process_messages2(self, session:aiohttp.ClientSession, subscription:Subscriptions):
         # retrieve history
         max_date = self.last_update
         status, history = await self.__call_api(session, f'{subscription.room_type.endpoint}.history', roomId=subscription.room_id, oldest=self.last_update)
