@@ -1,6 +1,5 @@
 from loguru import logger 
-import asyncio, json
-from websockets.asyncio.client import connect,  ClientConnection
+import asyncio, aiohttp, sys
 from datetime import datetime, timezone
 from yarl import URL
 from enum import Enum
@@ -9,70 +8,33 @@ from .models import User, Message, Subscriptions
 
 class RestBot():
     API:str = 'api/v1'
-    def __init__(self,server_url:str, auth_token:str, delay=1, command_prefix='!'):
+    def __init__(self, server_url:str, delay=1, command_prefix='!'):
         super().__init__()
+        self.server_url = URL(server_url)
         self.status:Status= Status.OFF
-        self.server_url = server_url
-        self.auth_token = auth_token
+        self.delay = delay
+        self.last_update = str(datetime.now(timezone.utc).isoformat("T", "milliseconds")).split('+')[0]
         self.commands = {}
         self.events = {}
         self.background_task = set()
-        
         self.command_prefix = command_prefix
-
+        if sys.platform == 'win32':
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
-    def run(self, auth_token:str):
-        asyncio.run(self.__run(auth_token=auth_token))
     
-    async def __run(self):
-        async for websocket in connect(self.server_url):
-            try:
-                self.status:Status= Status.OFF
-                subscriptions:dict[str, Subscriptions] =  {}
-                sub_ready = set()
-                await self._connect(websocket)
-                async for message in websocket:
-                    message:dict = json.loads(message)
-                    await self.pong(message, websocket)
-                    await self._log_if_not(message, websocket)
-                            
-            except Exception as e:
-                print(e)
-                continue
-
-    async def _connect(self, websocket:ClientConnection):
-        if self.status == Status.OFF:
-            logger.info(f'Connection to {self.auth_token}')
-            await websocket.send('{"msg": "connect","version": "1","support": ["1"]}')               
-
-        
-    async def pong(self, message:dict, websocket:ClientConnection):
-        if message.get('msg') == 'ping':
-            logger.trace(f'pong')
-            await websocket.send('{"msg": "pong"}')
+    def run(self, user_id:str, auth_token:str):
+        asyncio.run(self.__run(user_id=user_id, auth_token=auth_token))
     
-    async def _log_if_not(self, message:dict, websocket:ClientConnection):
-        if self.status == Status.OFF:
-            if message.get('msg')  == 'connected':
-                logger.info(f'Connected to {self.auth_token}')
-                self.status = Status.CONNECTED
-                await websocket.send(json.dumps({"msg": "method", 'id': 'login', "method": "login", "params":[{ "resume": self.auth_token}]}))
-                
-        elif self.status == Status.CONNECTED and message.get('id') == 'login':               
-            if message.get('id') == 'login':
-                logger.info(f'Logged as {message.get('result', {}).get('id')}')
-                self.status = Status.LOGGED
-                
-    async def _subscribe(self, message:dict, websocket:ClientConnection):
-        if self.status == Status.LOGGED:
-            if message.get('id') == 'subscribe':
-                pass
-            else:
-                
-                await websocket.send('{"msg": "method",  "method": "subscriptions/get",  "id": "subscribe", "params": []}')
-        
+    async def __run(self, user_id:str, auth_token:str):
+        headers = {'X-User-Id': user_id, 'X-Auth-Token': auth_token}
+        async with aiohttp.ClientSession(headers=headers) as session:
+            await self.__login(session)
+            
+            while self.status == Status.READY:
+                await self.__process_subscriptions(session)
+                await asyncio.sleep(self.delay)
 
-
+                
     async def __call_api(self, session:aiohttp.ClientSession, endpoint:str,  api:str=API, **params ):
         try:
             async with session.get(url=self.server_url/api/endpoint, params=params) as response:
@@ -182,11 +144,8 @@ class RestBot():
         return decorator    
         
 class Status(Enum):
-    OFF = 'OFF'
-    CONNECTED = 'CONNECTED'
-    LOGGED = 'LOGGED'
-    READY = 'READY'
-                    
+    OFF = False
+    READY = True
     
 class Event(Enum):
     ON_MESSAGE = 'on_message'

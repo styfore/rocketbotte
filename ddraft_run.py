@@ -1,19 +1,17 @@
 from dotenv import load_dotenv
-from yarl import Query
-from rocketbotte import Bot, Subscriptions, Message
+from rocketbotte import RestBot, Subscriptions, Message
 import asyncio,aiohttp,  os, sys
 from websockets.asyncio.client import connect
-import websockets
 from enum import Enum
 import json, time
 from loguru import logger
 
 load_dotenv(override=True)
+
 USER_ID = os.getenv('USER_ID')
 AUTH_TOKEN = os.getenv('AUTH_TOKEN')
 SERVER_URL = os.getenv('SERVER_URL')
-
-                    
+print(SERVER_URL)
 class Status(Enum):
     OFF = 'OFF'
     CONNECTED = 'CONNECTED'
