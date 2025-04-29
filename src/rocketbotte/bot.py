@@ -122,6 +122,7 @@ class Bot():
                 if not any([pr.startswith('retrieve_') for pr in self.pending_requests]):
                     logger.info('Bot ready and listenning')
                     self.status = Status.READY
+                    self.fire_event('on_ready')
 
 
     def  add_listener(self, func:Coroutine, name: str = None, aliases:list[str]=[]) -> None:
@@ -147,9 +148,7 @@ class Bot():
 
                 
     def command(self, name: str = None, aliases:list[str]=[]) :
-        """A decorator that registers another function as an external
-        event listener. Basically this allows you to listen to multiple
-        events from different places e.g. such as `.on_ready`
+        """A decorator that registers a coro that will be eventually executed in a on_command event
 
         The functions being listened to must be coroutine.
         
