@@ -19,8 +19,8 @@ class Message():
         return f'Message[author : {self.author}, date={self.created_at}, message={self.content}]'
     
     @property
-    def id(self) -> User:
-        return User(self.json.get('u'))
+    def id(self) -> str:
+        return self.json.get('_id')
     @property
     def author(self) -> User:
         return User(self.json.get('u'))

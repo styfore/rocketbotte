@@ -126,15 +126,14 @@ class Bot():
     async def __process_messages(self, message:dict):
         if message.get('collection') is not None and message.get('collection') == 'stream-room-messages':
             if len(message.get('fields', {}).get('args')) == 1:
-                j = message.get('fields', {}).get('args')[0]
                 msg = Message(message.get('fields', {}).get('args')[0])
                 if msg.id not in self.already_process:
                     self.already_process.append(msg.id)
-                    if msg.edited_at is None:
-                        ctx = Context(msg,  self.send_message)
+                    if msg.edited_at is None and msg.author.id != self.user_id:
                         self.fire_event('on_message', msg)
                         m = self.r_command.match(msg.content)
                         if m is not None:
+                            ctx = Context(msg,  self.send_message)
                             self.fire_event('on_command', ctx, m.group(1), m.group(2))
                                    
     async def _connect(self, ws:ClientWebSocketResponse):

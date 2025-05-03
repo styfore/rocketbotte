@@ -30,7 +30,7 @@ async def on_message(message:Message):
 bot.run()
 ```
 
-### Bot parameters :
+### Bot parameters
 
 - server_url: the server url as `https://myrocketchat.org`
 - auth_token: the personal authentification token for the bot
