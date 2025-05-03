@@ -1,7 +1,7 @@
 [project]
 name = "rocketbotte"
-version = "0.1.0"
-description = ""
+version = "0.1.1"
+description = "A bot for rocketchat messaging, allowing you to react to messages or commands."
 authors = [
     {name = "Styfore",email = "rocketbotte@styfore.ovh"}
 ]
