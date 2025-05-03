@@ -4,6 +4,9 @@ A bot for rocketchat messaging, allowing you to react to messages or commands.
 
 It works with rocketchat's realtime api (websocket) to receive messages, and responds with the REST api. To do this, it uses the aiohttp python library.
 
+- [rocketchat api documentation](https://developer.rocket.chat/apidocs/rocketchat-api)
+- [rocketchat real time api (websocket)](https://developer.rocket.chat/apidocs/realtimeapi)
+
 ## Installation
 
 `pip install rocketbotte`
@@ -29,8 +32,8 @@ bot.run()
 
 ### Bot parameters :
 
-- server_url: the server url as `https://myrocketchat.org
+- server_url: the server url as `https://myrocketchat.org`
 - auth_token: the personal authentification token for the bot
 - command_prefix: default : '!'
 - user_id: the user id who belongs to the authentification token
-- max_retry: number of attempt restart after an uncaught exception, default 5
+- max_retry: number of attempt restart after an uncaught exception, default to 5
