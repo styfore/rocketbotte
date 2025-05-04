@@ -1,6 +1,6 @@
 [project]
 name = "rocketbotte"
-version = "0.1.3"
+version = "0.1.4"
 description = "A bot for rocketchat messaging, allowing you to react to messages or commands."
 authors = [
     {name = "Styfore",email = "rocketbotte@styfore.ovh"}
@@ -8,8 +8,8 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 dependencies = [
-    "loguru (>=0.7.3,<0.8.0)",
     "aiohttp[speedups] (>=3.11.18,<4.0.0)",
+    "loguru (>=0.7.3,<0.8.0)",
 ]
 
 [tool.poetry]
