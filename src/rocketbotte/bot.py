@@ -119,7 +119,7 @@ class Bot():
                         logger.warning(f'chat.sendMessage return status {rjson["status"]} {response.status} :  maybe check auth_token or user_id : {rjson["message"]}')               
                     return status, rjson
         except Exception as e:
-            logger.error(f'Exception while calling {self.server_url/self.api/'chat.sendMessage'}')
+            logger.error(f'Exception while calling {self.server_url/self.api/"chat.sendMessage"}')
             raise e
              
     async def __process_messages(self, message:dict):
