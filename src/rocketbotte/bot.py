@@ -21,10 +21,10 @@ class Status(Enum):
 class Context:
     def __init__(self, message:Message, send:Coroutine):
         self.message = message
-        self.send = send
+        self.__send = send
         
     async def send_message(self, content:str):
-        await self.send(self.message.room_id, content)
+        await self.__send(self.message.room_id, content)
         
 class Bot():
     API:str = 'api/v1'
@@ -97,8 +97,11 @@ class Bot():
     async def on_command(self, ctx:Context, command_name, args):
         '''a predefined on_message listenner, will look for command  command_name to run it'''
         try:
-            coro:Coroutine = self.commands[command_name]
-            await coro(ctx, args)
+            coro:Coroutine = self.commands.get(command_name)
+            if command_name is not None:
+                await coro(ctx, args)
+            else:
+                logger.debug(f'command !{command_name} doesn’t exist')
         except Exception as e:
             logger.warning(f'Exception in command {command_name}')
             logger.warning(e)
