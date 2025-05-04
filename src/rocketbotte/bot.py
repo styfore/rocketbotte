@@ -17,12 +17,7 @@ class Status(Enum):
     SUSCRIBING = 'SUSCRIBING'
     READY = 'READY'
                     
-    
-class Command:
-    def __init__(self, name, args):
-        self.name = name
-        self.args = args
-    
+
 class Context:
     def __init__(self, message:Message, send:Coroutine):
         self.message = message
