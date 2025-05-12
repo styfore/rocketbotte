@@ -1,0 +1,3 @@
+draft_*
+.env
+__pycache__
