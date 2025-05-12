@@ -116,7 +116,7 @@ class Bot():
                 async with session.post(url=self.rest_url/self.api/'chat.sendMessage', json={'message': {'rid':room_id, 'msg':content}}) as response:
                     status, rjson =  response.status, await response.json()
                     if status != 200 or rjson.get('success') is not True: 
-                        logger.warning(f'chat.sendMessage return status {rjson['status']} {response.status} :  maybe check auth_token or user_id : {rjson['message']}')               
+                        logger.warning(f'chat.sendMessage return status {rjson["status"]} {response.status} :  maybe check auth_token or user_id : {rjson["message"]}')               
                     return status, rjson
         except Exception as e:
             logger.error(f'Exception while calling {self.server_url/self.api/'chat.sendMessage'}')
@@ -149,10 +149,10 @@ class Bot():
         if self.status == Status.CONNECTED:
             if 'login' not in self.pending_requests:
                 self.pending_requests.add('login')
-                await ws.send_json({"msg": "method", 'id': 'login', "method": "login", "params":[{ "resume": self.auth_token}]})
+                await ws.send_json({"msg": "method", 'id': 'login', "method": "login", "params":[{"resume": self.auth_token}]})
             else:
                 if msg.json().get('id') == 'login' :
-                    logger.info(f'Logged as {msg.json().get('result', {}).get('id')}')
+                    logger.info(f'Logged as {msg.json().get("result", {}).get("id")}')
                     self.status = Status.LOGGED
                     self.pending_requests.remove('login')
                     
@@ -184,7 +184,7 @@ class Bot():
         if self.status == Status.SUSCRIBING:
             response_id = msg.json().get('subs', [None])[0]
             if response_id is not None and response_id in self.pending_requests:
-                logger.debug(f'watching {self.subscriptions[response_id.split('_')[1]]}')
+                logger.debug(f'watching {self.subscriptions[response_id.split("_")[1]]}')
                 self.pending_requests.remove(response_id)
                 
                 if not any([f'retrieve_{rid}' in self.pending_requests for rid in self.subscriptions.keys()]):
