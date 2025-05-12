@@ -1,6 +1,5 @@
 from enum import Enum
 
-
 class User():  
     def __init__(self, json:dict):
         self.id = json.get('_id')
@@ -9,6 +8,7 @@ class User():
 
     def __str__(self):
         return self.username
+    
 class Message():    
     def __init__(self, json:dict|list):
         if type(json) == list:
@@ -17,13 +17,17 @@ class Message():
     
     def __str__(self):
         return f'Message[author : {self.author}, date={self.created_at}, message={self.content}]'
+    
+    @property
+    def id(self) -> User:
+        return User(self.json.get('u'))
     @property
     def author(self) -> User:
         return User(self.json.get('u'))
     
     @property
-    def roomId(self) -> str:
-        return self.json.get('rit')
+    def room_id(self) -> str:
+        return self.json.get('rid')
     
     @property
     def content(self) -> str:
@@ -52,7 +56,7 @@ class RoomType(Enum):
     def endpoint(self) -> str:
         return subscription_type.get(self.value)
     
-class Subscriptions:
+class Subscription:
     def __init__(self, json:dict):
         self.json = json
         self.user = User(self.json.get('u'))
@@ -60,7 +64,7 @@ class Subscriptions:
 
     
     def  __str__(self):
-        return f'Subscriptions[{self.best_name} : {self.room_id}]'
+        return f'Subscription[{self.best_name} : {self.room_id}]'
     
     @property
     def room_id(self) -> str:
@@ -78,9 +82,3 @@ class Subscriptions:
     def best_name(self) -> str:
         return self.fname if self.fname is not None else self.name
     
-    
-    
-    
-    
-
-

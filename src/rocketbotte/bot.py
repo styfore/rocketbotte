@@ -1,137 +1,204 @@
-from multiprocessing import set_forkserver_preload
+import time
 from loguru import logger 
-import asyncio, json, traceback, re
-from websockets.asyncio.client import connect,  ClientConnection
+import asyncio, traceback, re
 from enum import Enum
 from typing import Coroutine
-from .models import User, Message, Subscriptions
-
+from rocketbotte.models import Message, Subscription
+from collections import deque
+import aiohttp
+from aiohttp import ClientWebSocketResponse, WSMessage
+from yarl import URL
+        
+class Status(Enum):
+    OFF = 'OFF'
+    CONNECTED = 'CONNECTED'
+    LOGGED = 'LOGGED'
+    SUSCRIBING = 'SUSCRIBING'
+    READY = 'READY'
+                    
+    
+    
+class Event(Enum):
+    ON_MESSAGE = 'on_message'
+    ON_COMMAND = 'on_command'
+    
+class Command:
+    def __init__(self, name, args):
+        self.name = name
+        self.args = args
+    
+class Context:
+    def __init__(self, message:Message, send:Coroutine):
+        self.message = message
+        self.send = send
+        
+    async def send_message(self, content:str):
+        await self.send(self.message.room_id, content)
+        
 class Bot():
     API:str = 'api/v1'
     
-    def __init__(self,server_url:str, auth_token:str, delay=1, command_prefix='!'):
+    def __init__(self,server_url:str, user_id:str, auth_token:str, delay=1, command_prefix='!', max_retry:int=5, REST_API:str = 'api/v1'):
         super().__init__()
         self.status:Status= Status.OFF
-        self.server_url = server_url
+        self.rest_url = URL(server_url.strip())
+        self.ws_url = URL(re.sub('^http([s]?)://', lambda m : f'ws{m.group(1)}://', str(self.rest_url)))/'websocket'
+        self.user_id = user_id
         self.auth_token = auth_token
+        self.api = REST_API
+        
         self.command_prefix = command_prefix
         
-        self.subscriptions:dict[str, Subscriptions] = {}
+        self.subscriptions:dict[str, Subscription] = {}
         
-        
+        self.retry = 0
+        self.max_retry = max_retry
         self.background_task = set()
         self.pending_requests = set()
         self.r_command = re.compile(rf'^\s?{command_prefix}(\w+)\s?(.*)')
         
         self.events = {}
         self.commands = {}
+        self.already_process = deque(maxlen=100)
         self.add_listener(self.on_command, 'on_command')
 
     
     def run(self):
-        asyncio.run(self.__run())
-    
-    
+        try:
+            asyncio.run(self.__run())
+        except Exception as e:
+            self.retry += 1
+            logger.error(e)
+            logger.error(traceback.format_exc())
+            if self.retry < self.max_retry:
+                self.status:Status= Status.OFF
+                logger.error('Uncaught exception')
+                logger.info(f'Retry ({self.retry}/{self.max_retry}) in 5 seconds...')
+                time.sleep(5)
+                self.run()
+            else:
+                logger.info('max retry reached, exit program')
+                exit()
     
     async def __run(self):
-        async for websocket in connect(self.server_url):
-            try:
-                self.status:Status= Status.OFF
-                await self._connect(websocket)
-                async for message in websocket:
-                    message:dict = json.loads(message)
+        async with aiohttp.ClientSession() as session:
+            async with  session.ws_connect(self.ws_url) as ws:
+                await self._connect(ws)
+                
+                async for msg in ws:
+                    await self.pong(msg, ws)
                     if self.status != Status.READY:
-                        await self._log_if_not(message, websocket)
-                        await self._subscribe(message, websocket)
-                        
-                    await self.pong(message, websocket)
-                    await self.__process_messages(message, websocket)
-            except Exception as e:
-                logger.error(e)
-                traceback.print_exc()
-                await asyncio.sleep(5)
-                continue
-            
-    def fire_event(self, name, message:Message, **kwargs):
-        print('fire', message, kwargs)
+                        await self._login(msg, ws)
+                        await self._subscribe(msg, ws)
+                        await self._assert_rooms_suscribed(msg)
+                    else:
+                        await self.__process_messages(msg.json())
+
+                            
+
+                
+    def fire_event(self, name, *args):
+        logger.trace(f'fire event {name} with args {args}')
         for event in self.events.get(name, []):
-            task = asyncio.create_task(event(message, **kwargs))
+            task = asyncio.create_task(event(*args))
             self.background_task.add(task)
             task.add_done_callback(self.background_task.discard)
             
      
-    async def on_command(self, message, command, after):
-        coro:Coroutine = self.commands[command]
-        print(coro.__qualname__)
-        await coro(*args)
-        pass
-    
-    def create_context(message):        
+    async def on_command(self, ctx:Context, command, after):
+        try:
+            coro:Coroutine = self.commands[command]
+            await coro(ctx, after)
+        except Exception as e:
+            logger.warning(f'Exception in command {command}')
+            logger.warning(e)
+            logger.warning(traceback.format_exc())
 
-                
-    async def _connect(self, websocket:ClientConnection):
-        if self.status == Status.OFF:
-            logger.info(f'Connection to {self.auth_token}')
-            await websocket.send('{"msg": "connect","version": "1","support": ["1"]}')               
 
-        
-    async def pong(self, message:dict, websocket:ClientConnection):
-        if message.get('msg') == 'ping':
-            logger.trace(f'pong')
-            await websocket.send('{"msg": "pong"}')
-            
-    async def __process_messages(self, message:dict, websocket:ClientConnection):
+    async def send_message(self, roomId:str , content:str):
+        try:
+            headers = {'X-User-Id': self.user_id, 'X-Auth-Token': self.auth_token}
+            async with aiohttp.ClientSession(headers=headers) as session:
+                async with session.post(url=self.rest_url/self.api/'chat.sendMessage', json={'message': {'rid':roomId, 'msg':content}}) as response:
+                    status, rjson =  response.status, await response.json()
+                    if status != 200 or rjson.get('success') is not True: 
+                        logger.warning(f'chat.sendMessage return status {rjson['status']} {response.status} :  maybe check auth_token or user_id : {rjson['message']}')               
+                    return status, rjson
+        except Exception as e:
+            logger.error(f'Exception while calling {self.server_url/self.api/'chat.sendMessage'}')
+            raise e
+             
+    async def __process_messages(self, message:dict):
         if message.get('collection') is not None and message.get('collection') == 'stream-room-messages':
             if len(message.get('fields', {}).get('args')) == 1:
-                msg = Message(message.get('fields', {}).get('args'))
-                if msg.edited_at is None:
-                    self.fire_event('on_message', msg)
-                    m = self.r_command.match(msg.content)
-                    if m is not None:
-                        self.fire_event('on_command', message, command=m.group(1), after=m.group(2))
-                        
-
-    
-    async def _log_if_not(self, message:dict, websocket:ClientConnection):
+                j = message.get('fields', {}).get('args')[0]
+                msg = Message(message.get('fields', {}).get('args')[0])
+                if msg.id not in self.already_process:
+                    self.already_process.append(msg.id)
+                    if msg.edited_at is None:
+                        ctx = Context(msg,  self.send_message)
+                        self.fire_event('on_message', msg)
+                        m = self.r_command.match(msg.content)
+                        if m is not None:
+                            self.fire_event('on_command', ctx, m.group(1), m.group(2))
+                                   
+    async def _connect(self, ws:ClientWebSocketResponse):
         if self.status == Status.OFF:
-            if message.get('msg')  == 'connected':
-                logger.info(f'Connected to {self.auth_token}')
+            await ws.send_json({"msg": "connect","version": "1","support": ["1"]})
+            reponse:dict = await ws.receive_json()
+            if reponse.get('msg')  == 'connected':
+                logger.info(f'Connection to websocket {self.rest_url}')
                 self.status = Status.CONNECTED
-                await websocket.send(json.dumps({"msg": "method", 'id': 'login', "method": "login", "params":[{ "resume": self.auth_token}]}))
-                self.pending_requests.add('login')
-                
-        elif self.status == Status.CONNECTED and message.get('id') == 'login':               
-            if 'login' in self.pending_requests and message.get('id') == 'login':
-                logger.info(f'Logged as {message.get('result', {}).get('id')}')
-                self.pending_requests.remove('login')
-                self.status = Status.LOGGED
+        else:
+            raise Exception('erreur lors de la connexion')
 
+    async def _login(self, msg:WSMessage, ws:ClientWebSocketResponse):
+        if self.status == Status.CONNECTED:
+            if 'login' not in self.pending_requests:
+                self.pending_requests.add('login')
+                await ws.send_json({"msg": "method", 'id': 'login', "method": "login", "params":[{ "resume": self.auth_token}]})
+            else:
+                if msg.json().get('id') == 'login' :
+                    logger.info(f'Logged as {msg.json().get('result', {}).get('id')}')
+                    self.status = Status.LOGGED
+                    self.pending_requests.remove('login')
+                    
+        
+    async def pong(self, msg:WSMessage,  ws:ClientWebSocketResponse):
+        if msg.json()['msg'] == 'ping':
+            logger.trace(f'pong')
+            await ws.send_json({"msg": "pong"})
                 
-    async def _subscribe(self, message:dict, websocket:ClientConnection):
+    async def _subscribe(self, msg:WSMessage, ws:ClientWebSocketResponse):
         if self.status == Status.LOGGED:
-            await websocket.send('{"msg": "method",  "method": "subscriptions/get",  "id": "get_subscriptions", "params": []}')
-            self.pending_requests.add('get_subscriptions')
-            self.status = Status.SUSCRIBING
-        elif self.status == Status.SUSCRIBING:
-            if 'get_subscriptions' in self.pending_requests and message.get('id') == 'get_subscriptions':
-                subs = message.get('result', [])
-                logger.info(f'Suscribing to {len(subs)} rooms')
-                for sub in subs:
-                    subscription = Subscriptions(sub)
-                    self.subscriptions[subscription.room_id] = subscription
-                    self.pending_requests.add(f'retrieve_{subscription.room_id}')
-                    q =  {"msg": "sub", "id": f"retrieve_{subscription.room_id}", "name": "stream-room-messages", "params":[subscription.room_id, False ]}
-                    await websocket.send(json.dumps(q))
-            elif message.get('msg') == 'ready' and message.get('subs') is not None and message.get('subs')[0] in self.pending_requests:
-                rid = message.get('subs')[0].split('_')[1]
-                self.pending_requests.remove(message.get('subs')[0])
-                logger.debug(f'watching {self.subscriptions[rid]}')
+            if 'get_subscriptions' not in self.pending_requests:
+                self.pending_requests.add('get_subscriptions')
+                await ws.send_json({"msg": "method",  "method": "subscriptions/get",  "id": "get_subscriptions", "params": []})
+            else:
+                if msg.json().get('id') == 'get_subscriptions':
+                    subs = msg.json().get('result', [])
+                    logger.info(f'Suscribing to {len(subs)} rooms')
+                    self.pending_requests.remove('get_subscriptions')
+                    for sub in subs:
+                        subscription = Subscription(sub)
+                        self.subscriptions[subscription.room_id] = subscription
+                        request_id = f"retrieve_{subscription.room_id}"
+                        self.pending_requests.add(request_id)
+                        await ws.send_json({"msg": "sub", "id": request_id, "name": "stream-room-messages", "params":[subscription.room_id, False ]})
+                    self.status = Status.SUSCRIBING
+                    
+    async def _assert_rooms_suscribed(self, msg:WSMessage):
+        if self.status == Status.SUSCRIBING:
+            response_id = msg.json().get('subs', [None])[0]
+            if response_id is not None and response_id in self.pending_requests:
+                logger.debug(f'watching {self.subscriptions[response_id.split('_')[1]]}')
+                self.pending_requests.remove(response_id)
                 
-                if not any([pr.startswith('retrieve_') for pr in self.pending_requests]):
+                if not any([f'retrieve_{rid}' in self.pending_requests for rid in self.subscriptions.keys()]):
                     logger.info('Bot ready and listenning')
                     self.status = Status.READY
                     self.fire_event('on_ready')
-
+                    
 
     def  add_listener(self, func:Coroutine, name: str = None, aliases:list[str]=[]) -> None:
         if not asyncio.iscoroutinefunction(func):
@@ -212,29 +279,6 @@ class Bot():
             self.add_listener(func, name)
             return func
 
-        return decorator    
+        return decorator
+
         
-class Status(Enum):
-    OFF = 'OFF'
-    CONNECTED = 'CONNECTED'
-    LOGGED = 'LOGGED'
-    SUSCRIBING = 'SUSCRIBING'
-    READY = 'READY'
-                    
-    
-class Event(Enum):
-    ON_MESSAGE = 'on_message'
-    ON_COMMAND = 'on_command'
-    
-class Command:
-    def __init__(self, name, args):
-        self.name = name
-        self.args = args
-    
-class Context:
-    def __init__(self, message:Message, bot:Bot):
-        self.message = message
-        self.bot = bot
-    
-    async def send(self, content:str):
-        await.self.bot.send_message()
