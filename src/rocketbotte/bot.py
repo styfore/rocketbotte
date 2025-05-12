@@ -124,7 +124,7 @@ class Bot():
                     self.status = Status.READY
 
 
-    def  add_listener(self, func:Coroutine, name: str = None, aliases:list[]=[]) -> None:
+    def  add_listener(self, func:Coroutine, name: str = None, aliases:list[str]=[]) -> None:
         if not asyncio.iscoroutinefunction(func):
             raise TypeError('Listeners must be coroutines')
         
