@@ -98,7 +98,7 @@ class Bot():
         '''a predefined on_message listenner, will look for command  command_name to run it'''
         try:
             coro:Coroutine = self.commands.get(command_name)
-            if command_name is not None:
+            if coro is not None:
                 await coro(ctx, args)
             else:
                 logger.debug(f'command !{command_name} doesn’t exist')
