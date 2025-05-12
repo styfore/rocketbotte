@@ -37,3 +37,8 @@ bot.run()
 - command_prefix: default : '!'
 - user_id: the user id who belongs to the authentification token
 - max_retry: number of attempt restart after an uncaught exception, default to 5
+
+
+## logging
+
+This library use loguru for logging. To see logs explicit ask for by using  `logger.enable("rocketbotte")`

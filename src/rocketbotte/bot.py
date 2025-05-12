@@ -1,5 +1,4 @@
 import time
-from loguru import logger 
 import asyncio, traceback, re
 from enum import Enum
 from typing import Coroutine
@@ -8,7 +7,9 @@ from collections import deque
 import aiohttp
 from aiohttp import ClientWebSocketResponse, WSMessage
 from yarl import URL
-        
+from loguru import logger
+
+
 class Status(Enum):
     OFF = 'OFF'
     CONNECTED = 'CONNECTED'
