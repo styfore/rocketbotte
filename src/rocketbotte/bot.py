@@ -89,15 +89,54 @@ class Bot():
         return max_date
     
 
-    def  add_listener(self, func:Coroutine, name) -> None:
+    def  add_listener(self, func:Coroutine, name: str = None) -> None:
         if not asyncio.iscoroutinefunction(func):
             raise TypeError('Listeners must be coroutines')
-        
+        name = func.__name__ if name is None else name
+
         if name in self.events:
             self.events[name].append(func)
         else:
             self.events[name] = [func]
+    
+    def remove_listener(self, func:Coroutine, name: str = None) -> None:
+        name = func.__name__ if name is None else name
+
+        if name in self.events:
+            try:
+                self.events[name].remove(func)
+            except ValueError:
+                pass
+            
+    def listen(self, name: str = None) :
+        """A decorator that registers another function as an external
+        event listener. Basically this allows you to listen to multiple
+        events from different places e.g. such as `.on_ready`
+
+        The functions being listened to must be coroutine.
         
+        Example
+        --------
+
+        .. code-block:: python3
+
+            @bot.listen()
+            async def on_message(message):
+                print('one')
+
+            # in some other file...
+
+            @bot.listen('on_message')
+            async def my_message(message):
+                print('two')
+
+        Would print one and two in an unspecified order.
+        """
+        def decorator(func):
+            self.add_listener(func, name)
+            return func
+
+        return decorator    
         
 class Status(Enum):
     OFF = False
