@@ -9,24 +9,22 @@ from yarl import URL
 class Bot():
     API:str = 'api/v1'
     subscription_type = {'d' : 'dm', 'c' : 'channels', 'p': 'groups'}
-    def __init__(self, user_id:str, auth_token:str, server_url:str, delay=1):
+    def __init__(self, server_url:str, delay=1):
         super().__init__()
-        self.user_id = user_id
-        self.auth_token = auth_token
         self.server_url = URL(server_url)
         self.status = 'OFF'
         self.delay = delay
         self.last_update = str(datetime.now(timezone.utc).isoformat("T", "milliseconds")).split('+')[0]
-        self.headers = {'X-User-Id': self.user_id, 'X-Auth-Token': self.auth_token}
         if sys.platform == 'win32':
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
     
-    def run(self):
+    def run(self, user_id:str, auth_token:str):
         asyncio.run(self.__run())
     
-    async def __run(self):
-        async with aiohttp.ClientSession(headers=self.headers) as session:
+    async def __run(self, user_id:str, auth_token:str):
+        headers = {'X-User-Id': self.user_id, 'X-Auth-Token': self.auth_token}
+        async with aiohttp.ClientSession(headers=headers) as session:
             await self.__login(session)
             
 
@@ -40,7 +38,8 @@ class Bot():
             async with session.get(url=self.server_url/api/endpoint, params=params) as response:
                 status, rjson =  response.status, await response.json()
                 if status != 200:
-                    logger.warning
+                    logger.warning(f'{endpoint} return status {rjson['status']} {response.status} :  maybe check auth_token or user_id : {rjson['message']}')               
+                return status, rjson
         except Exception as e:
             logger.error(f'Exception while calling {self.server_url}/{endpoint}')
             raise e
@@ -54,7 +53,7 @@ class Bot():
             logger.info(f'Logged as {self.me['username']}')
         else:
             resp = await response.json()
-            error_message = f'{resp['status']} {response.status} : unable to connect, check auth_token or user_id : {resp['message']}'
+            error_message = f'unable to connect, check auth_token or user_id : {resp['message']}'
             logger.error(error_message)
             raise Exception(error_message)
         
@@ -70,7 +69,6 @@ class Bot():
             max_dates = [task.result() for task in tasks if task.result() is not None]
             if len(max_dates) > 0:
                 self.last_update = max([task.result() for task in tasks if task.result() is not None])
-        else:
             
 
     async def __process_messages(self, session:aiohttp.ClientSession, subscription):
