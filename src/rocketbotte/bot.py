@@ -10,7 +10,7 @@ from typing import Any, Coro, Coroutine
 class Bot():
     API:str = 'api/v1'
     subscription_type = {'d' : 'dm', 'c' : 'channels', 'p': 'groups'}
-    def __init__(self, server_url:str, delay=1):
+    def __init__(self, server_url:str, delay=1, command_prefix='!'):
         super().__init__()
         self.server_url = URL(server_url)
         self.status:Status= Status.OFF
@@ -18,6 +18,7 @@ class Bot():
         self.last_update = str(datetime.now(timezone.utc).isoformat("T", "milliseconds")).split('+')[0]
         self.commands = {}
         self.events = {}
+        self.command_prefix = command_prefix
         if sys.platform == 'win32':
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
