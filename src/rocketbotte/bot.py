@@ -1,6 +1,5 @@
-import json, sys
 from loguru import logger 
-import asyncio, aiohttp, time
+import asyncio, aiohttp, sys
 from datetime import datetime, timezone
 from yarl import URL
 from enum import Enum
@@ -33,7 +32,7 @@ class Bot():
             
             while self.status == Status.READY:
                 await self.__process_subscriptions(session)
-                time.sleep(self.delay)
+                asyncio.sleep(self.delay)
 
                 
     async def __call_api(self, session:aiohttp.ClientSession, endpoint:str,  api:str=API, **params ):
