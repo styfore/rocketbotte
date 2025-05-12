@@ -8,7 +8,7 @@ from yarl import URL
 
 class Bot():
     API:str = 'api/v1'
-    
+    subscription_type = {'d' : 'dm', 'c' : 'channels', 'p': 'groups'}
     def __init__(self, user_id:str, auth_token:str, server_url:str, delay=1):
         super().__init__()
         self.user_id = user_id
@@ -16,6 +16,7 @@ class Bot():
         self.server_url = URL(server_url)
         self.status = 'OFF'
         self.delay = delay
+        self.last_update = str(datetime.now(timezone.utc).isoformat("T", "milliseconds")).split('+')[0]
         self.headers = {'X-User-Id': self.user_id, 'X-Auth-Token': self.auth_token}
         if sys.platform == 'win32':
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -27,16 +28,12 @@ class Bot():
     async def __run(self):
         async with aiohttp.ClientSession(headers=self.headers) as session:
             await self.__login(session)
+            
 
-            # while self.status == 'CONNECTED':
-            last_update = datetime.now()
-            messages = await self.__get_messages(session, last_update)
+            while self.status == 'CONNECTED':
+                await self.__process_subscriptions(session)
             time.sleep(self.delay)
-            
-                
-            
 
-            
                 
     async def __call_api(self, session:aiohttp.ClientSession, endpoint:str,  api:str=API, **params ):
         async with session.get(url=self.server_url/api/endpoint, params=params) as response:
@@ -53,21 +50,30 @@ class Bot():
             raise Exception(f'{resp['status']} {response.status} : unable to connect, check auth_token or user_id : {resp['message']}')
         
 
-    async def __get_messages(self, session:aiohttp.ClientSession, last_update:datetime):
-        status, channels = await self.__call_api(session, 'subscriptions.get')
+    async def __process_subscriptions(self, session:aiohttp.ClientSession):
+        # get subscription channels to look for history
+        status, subscriptions = await self.__call_api(session, 'subscriptions.get')
         if status == 200:
-            for channel in channels['update']:
-                print(channel)
+            tasks:list[asyncio.Task] = []
+            async with asyncio.TaskGroup() as tg:
+                for subscription in subscriptions.get('update', []):
+                    tasks.append(tg.create_task(self.__process_messages(session, subscription)))
+            max_dates = [task.result() for task in tasks if task.result() is not None]
+            if len(max_dates) > 0:
+                self.last_update = max([task.result() for task in tasks if task.result() is not None])
 
-
-# /api/v1/me           
-    # X-User-Id
-    # stringRequired
-
-    # The user ID of the user.
-    # X-Auth-Token
-    # stringRequired
-
-    # The authorization token of the user.
-    #
-# /api/v1/logout
+    async def __process_messages(self, session:aiohttp.ClientSession, subscription):
+        # retrieve history
+        room_id = subscription['rid']
+        endpoint = self.subscription_type.get(subscription['t'])
+        max_date = self.last_update
+        if endpoint is not None:    
+            status, history = await self.__call_api(session, f'{endpoint}.history', roomId=room_id, oldest=self.last_update)
+            if status == 200:
+                for message in history.get('messages', []):
+                    print(f'{message['u']['username']} : {message['msg']}')
+                    max_date = max(max_date, message['ts']) if message['ts'] is not None else max_date
+            else:
+                raise Exception(f'{history['status']} {history.status} : unable to connect, check auth_token or user_id : {history['message']}')
+        return max_date
+            

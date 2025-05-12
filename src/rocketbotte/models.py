@@ -8,6 +8,7 @@ from datetime import datetime
 mess = []
 def listen_message():
     global mess
+    print('lister')
     while True:
         m = input()
         d = datetime.now()
