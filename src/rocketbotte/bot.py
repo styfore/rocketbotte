@@ -5,32 +5,34 @@ from aiohttp import BasicAuth
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from yarl import URL
-
+from enum import Enum
+from typing import Any, Coro, Coroutine
 class Bot():
     API:str = 'api/v1'
     subscription_type = {'d' : 'dm', 'c' : 'channels', 'p': 'groups'}
     def __init__(self, server_url:str, delay=1):
         super().__init__()
         self.server_url = URL(server_url)
-        self.status = 'OFF'
+        self.status:Status= Status.OFF
         self.delay = delay
         self.last_update = str(datetime.now(timezone.utc).isoformat("T", "milliseconds")).split('+')[0]
+        self.commands = {}
+        self.events = {}
         if sys.platform == 'win32':
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
     
     def run(self, user_id:str, auth_token:str):
-        asyncio.run(self.__run())
+        asyncio.run(self.__run(user_id=user_id, auth_token=auth_token))
     
     async def __run(self, user_id:str, auth_token:str):
-        headers = {'X-User-Id': self.user_id, 'X-Auth-Token': self.auth_token}
+        headers = {'X-User-Id': user_id, 'X-Auth-Token': auth_token}
         async with aiohttp.ClientSession(headers=headers) as session:
             await self.__login(session)
             
-
-            while self.status == 'CONNECTED':
+            while self.status == Status.READY:
                 await self.__process_subscriptions(session)
-            time.sleep(self.delay)
+                time.sleep(self.delay)
 
                 
     async def __call_api(self, session:aiohttp.ClientSession, endpoint:str,  api:str=API, **params ):
@@ -49,7 +51,7 @@ class Bot():
         status, response = await self.__call_api(session, 'me')
         if status == 200:
             self.me = response
-            self.status = 'CONNECTED'
+            self.status = Status.READY
             logger.info(f'Logged as {self.me['username']}')
         else:
             resp = await response.json()
@@ -85,4 +87,19 @@ class Bot():
             else:
                 raise Exception(f'{history['status']} {history.status} : unable to connect, check auth_token or user_id : {history['message']}')
         return max_date
-            
+    
+
+    def  add_listener(self, func:Coroutine, name) -> None:
+        if not asyncio.iscoroutinefunction(func):
+            raise TypeError('Listeners must be coroutines')
+        
+        if name in self.events:
+            self.events[name].append(func)
+        else:
+            self.events[name] = [func]
+        
+        
+class Status(Enum):
+    OFF = False
+    READY = True
+    
