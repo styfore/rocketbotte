@@ -210,7 +210,11 @@ class Bot():
             except ValueError:
                 pass
             
-    
+    def add_command(self, name, coro:Coroutine, aliases:list[str]=[]):
+        self.commands[name] = coro
+        for alias in aliases:
+            self.commands[alias] = coro
+            
                 
     def command(self, name: str = None, aliases:list[str]=[]) :
         """A decorator that registers a coro that will be eventually executed in a on_command event
@@ -236,7 +240,7 @@ class Bot():
         """
         def decorator(func):
             n = func.__name__ if name is None else name
-            self.commands[n] = func
+            self.add_command(n, func, aliases=aliases)
             return func
 
         return decorator
