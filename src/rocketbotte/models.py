@@ -7,10 +7,16 @@ class User():
         self.username = json.get('username')
         self.name = json.get('name')
 
+    def __str__(self):
+        return self.username
 class Message():    
-    def __init__(self, json:dict):
+    def __init__(self, json:dict|list):
+        if type(json) == list:
+            json = json[0]
         self.json = json
-        
+    
+    def __str__(self):
+        return f'Message[author : {self.author}, date={self.created_at},, message={self.content}]'
     @property
     def author(self) -> User:
         return User(self.json.get('u'))
@@ -43,6 +49,10 @@ class Subscriptions:
         self.json = json
         self.user = User(self.json.get('u'))
         self.room_type = RoomType(json.get('t'))
+
+    
+    def  __str__(self):
+        return f'Subscriptions[{self.best_name} : {self.room_id}]'
     
     @property
     def room_id(self) -> str:
@@ -59,6 +69,8 @@ class Subscriptions:
     @property
     def best_name(self) -> str:
         return self.fname if self.fname is not None else self.name
+    
+    
     
     
     
