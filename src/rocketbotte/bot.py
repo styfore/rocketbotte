@@ -1,16 +1,13 @@
-import traceback
 from loguru import logger 
-import asyncio, json, aiohttp
+import asyncio, json, traceback, re
 from websockets.asyncio.client import connect,  ClientConnection
-from datetime import datetime, timezone
-from yarl import URL
 from enum import Enum
 from typing import Coroutine
-from collections import deque
 from .models import User, Message, Subscriptions
 
 class Bot():
     API:str = 'api/v1'
+    
     def __init__(self,server_url:str, auth_token:str, delay=1, command_prefix='!'):
         super().__init__()
         self.status:Status= Status.OFF
@@ -20,22 +17,29 @@ class Bot():
         
         self.subscriptions:dict[str, Subscriptions] = {}
         
-        self.commands = {}
-        self.events = {}
         
         self.background_task = set()
         self.pending_requests = set()
+        self.r_command = re.compile(rf'^\s?{command_prefix}(\w+)\s?(.*)')
+        
+        self.events = {}
+        self.commands = {}
+        self.add_listener(self.on_command, 'on_command')
 
     
     def run(self):
         asyncio.run(self.__run())
+        
+    async def on_command(self, name, args, message):
+        coro = self.commands[name]
+        await coro(args, message)
+        pass
+            
     
     async def __run(self):
         async for websocket in connect(self.server_url):
             try:
                 self.status:Status= Status.OFF
-                subscriptions:dict[str, Subscriptions] =  {}
-                sub_ready = set()
                 await self._connect(websocket)
                 async for message in websocket:
                     message:dict = json.loads(message)
@@ -50,7 +54,13 @@ class Bot():
                 traceback.print_exc()
                 await asyncio.sleep(5)
                 continue
-
+            
+    def fire_event(self, name, *args, **kwargs):
+        for event in self.events.get(name, []):
+            task = asyncio.create_task(event(*args, **kwargs))
+            self.background_task.add(task)
+            task.add_done_callback(self.background_task.discard)
+            
     async def _connect(self, websocket:ClientConnection):
         if self.status == Status.OFF:
             logger.info(f'Connection to {self.auth_token}')
@@ -67,10 +77,12 @@ class Bot():
             if len(message.get('fields', {}).get('args')) == 1:
                 msg = Message(message.get('fields', {}).get('args'))
                 if msg.edited_at is None:
-                    print(msg)
-                    print(message)
-                else:
-                    print('edited')
+                    self.fire_event('on_message', msg)
+                    m = self.r_command.match(msg.content)
+                    if m is not None:
+                        self.fire_event('on_command', command=m.group(1), args=m.group(2))
+                        
+
     
     async def _log_if_not(self, message:dict, websocket:ClientConnection):
         if self.status == Status.OFF:
@@ -110,29 +122,12 @@ class Bot():
                 if not any([pr.startswith('retrieve_') for pr in self.pending_requests]):
                     logger.info('Bot ready and listenning')
                     self.status = Status.READY
-                
-                
-            
-            
-            
 
-    async def __process_messages2(self, session:aiohttp.ClientSession, subscription:Subscriptions):
-        # retrieve history
-        max_date = self.last_update
-        status, history = await self.__call_api(session, f'{subscription.room_type.endpoint}.history', roomId=subscription.room_id, oldest=self.last_update)
-        if status == 200:
-            for message in history.get('messages', []):
-                message = Message(message)
-                self.fire_event('on_message', message)
-                max_date = max(max_date, message.created_at) if message.created_at is not None else max_date
-        else:
-            raise Exception(f'{history['status']} {history.status} : unable to connect, check auth_token or user_id : {history['message']}')
-        return max_date
-    
 
-    def  add_listener(self, func:Coroutine, name: str = None) -> None:
+    def  add_listener(self, func:Coroutine, name: str = None, aliases:list[]=[]) -> None:
         if not asyncio.iscoroutinefunction(func):
             raise TypeError('Listeners must be coroutines')
+        
         name = func.__name__ if name is None else name
 
         if name in self.events:
@@ -149,12 +144,39 @@ class Bot():
             except ValueError:
                 pass
             
-    def fire_event(self, name, *args, **kwargs):
-        for event in self.events.get(name, []):
-            task = asyncio.create_task(event(*args, **kwargs))
-            self.background_task.add(task)
-            task.add_done_callback(self.background_task.discard)
+
                 
+    def command(self, name: str = None, aliases:list[str]=[]) :
+        """A decorator that registers another function as an external
+        event listener. Basically this allows you to listen to multiple
+        events from different places e.g. such as `.on_ready`
+
+        The functions being listened to must be coroutine.
+        
+        Example
+        --------
+
+        .. code-block:: python3
+
+            @bot.command()
+            async def command_name(message):
+                print('one')
+
+            # in some other file...
+
+            @bot.command('command_name')
+            async def my_command(message):
+                print('two')
+
+        Would print one and two in an unspecified order.
+        """
+        def decorator(func):
+            name = func.__name__ if name is None else name
+            self.commands[name] = func
+            return func
+
+        return decorator
+
     def listen(self, name: str = None) :
         """A decorator that registers another function as an external
         event listener. Basically this allows you to listen to multiple
@@ -196,4 +218,9 @@ class Status(Enum):
 class Event(Enum):
     ON_MESSAGE = 'on_message'
     ON_COMMAND = 'on_command'
+    
+class Command:
+    def __init__(self, name, args):
+        self.name = name
+        self.args = args
     
