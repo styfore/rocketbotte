@@ -1,9 +1,7 @@
 from datetime import datetime
 from dateutil import parser
 from enum import Enum
-from tkinter.font import ROMAN
 
-from colorama import init
 
 class User():  
     def __init__(self, json:dict):
