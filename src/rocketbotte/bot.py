@@ -82,7 +82,7 @@ class Bot():
         if status == 200:
             for message in history.get('messages', []):
                 message = Message(message)
-                print(message)
+                self.fire_event('on_message', message)
                 max_date = max(max_date, message.created_at) if message.created_at is not None else max_date
         else:
             raise Exception(f'{history['status']} {history.status} : unable to connect, check auth_token or user_id : {history['message']}')
@@ -110,7 +110,7 @@ class Bot():
             
     def fire_event(self, name, *args, **kwargs):
         for event in self.events.get(name, []):
-            task = asyncio.current_task(event(*args, **kwargs))
+            task = asyncio.create_task(event(*args, **kwargs))
             self.background_task.add(task)
             task.add_done_callback(self.background_task.discard)
                 
