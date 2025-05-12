@@ -1,3 +1,4 @@
+from multiprocessing import set_forkserver_preload
 from loguru import logger 
 import asyncio, json, traceback, re
 from websockets.asyncio.client import connect,  ClientConnection
@@ -29,12 +30,8 @@ class Bot():
     
     def run(self):
         asyncio.run(self.__run())
-        
-    async def on_command(self, name, args, message):
-        coro = self.commands[name]
-        await coro(args, message)
-        pass
-            
+    
+    
     
     async def __run(self):
         async for websocket in connect(self.server_url):
@@ -55,14 +52,23 @@ class Bot():
                 await asyncio.sleep(5)
                 continue
             
-    def fire_event(self, name, *args, **kwargs):
-        print('fire', args, kwargs)
+    def fire_event(self, name, message:Message, **kwargs):
+        print('fire', message, kwargs)
         for event in self.events.get(name, []):
-            task = asyncio.create_task(event(*args, **kwargs))
+            task = asyncio.create_task(event(message, **kwargs))
             self.background_task.add(task)
             task.add_done_callback(self.background_task.discard)
             
-            
+     
+    async def on_command(self, message, command, after):
+        coro:Coroutine = self.commands[command]
+        print(coro.__qualname__)
+        await coro(*args)
+        pass
+    
+    def create_context(message):        
+
+                
     async def _connect(self, websocket:ClientConnection):
         if self.status == Status.OFF:
             logger.info(f'Connection to {self.auth_token}')
@@ -82,7 +88,7 @@ class Bot():
                     self.fire_event('on_message', msg)
                     m = self.r_command.match(msg.content)
                     if m is not None:
-                        self.fire_event('on_command', command=m.group(1), args=m.group(2))
+                        self.fire_event('on_command', message, command=m.group(1), after=m.group(2))
                         
 
     
@@ -147,7 +153,7 @@ class Bot():
             except ValueError:
                 pass
             
-
+    
                 
     def command(self, name: str = None, aliases:list[str]=[]) :
         """A decorator that registers a coro that will be eventually executed in a on_command event
@@ -172,8 +178,8 @@ class Bot():
         Would print one and two in an unspecified order.
         """
         def decorator(func):
-            name = func.__name__ if name is None else name
-            self.commands[name] = func
+            n = func.__name__ if name is None else name
+            self.commands[n] = func
             return func
 
         return decorator
@@ -225,3 +231,10 @@ class Command:
         self.name = name
         self.args = args
     
+class Context:
+    def __init__(self, message:Message, bot:Bot):
+        self.message = message
+        self.bot = bot
+    
+    async def send(self, content:str):
+        await.self.bot.send_message()
