@@ -5,6 +5,10 @@ class User():
         self.id = json.get('_id')
         self.username = json.get('username')
         self.name = json.get('name')
+        
+    @property
+    def mention(self) -> str:
+        return f'@{self.username}'
 
     def __str__(self):
         return self.username
