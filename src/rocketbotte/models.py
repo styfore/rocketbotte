@@ -16,7 +16,7 @@ class Message():
         self.json = json
     
     def __str__(self):
-        return f'Message[author : {self.author}, date={self.created_at},, message={self.content}]'
+        return f'Message[author : {self.author}, date={self.created_at}, message={self.content}]'
     @property
     def author(self) -> User:
         return User(self.json.get('u'))
@@ -31,7 +31,15 @@ class Message():
     
     @property
     def created_at(self) -> str:
-        return self.json.get('ts')
+        return self.json.get('ts', {}).get('$date')
+    
+    @property
+    def edited_at(self) -> str:
+        return self.json.get('editedAt', {}).get('$date')
+    
+    @property
+    def reactions(self) -> str:
+        return self.json.get('reaction', {})
 
 subscription_type = {'d' : 'dm', 'c' : 'channels', 'p': 'groups'}
 class RoomType(Enum):
