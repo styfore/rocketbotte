@@ -1,3 +1,4 @@
 draft_*
 .env
 __pycache__
+dist

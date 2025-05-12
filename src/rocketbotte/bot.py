@@ -17,11 +17,6 @@ class Status(Enum):
     READY = 'READY'
                     
     
-    
-class Event(Enum):
-    ON_MESSAGE = 'on_message'
-    ON_COMMAND = 'on_command'
-    
 class Command:
     def __init__(self, name, args):
         self.name = name
@@ -38,9 +33,8 @@ class Context:
 class Bot():
     API:str = 'api/v1'
     
-    def __init__(self,server_url:str, user_id:str, auth_token:str, delay=1, command_prefix='!', max_retry:int=5, REST_API:str = 'api/v1'):
+    def __init__(self,server_url:str, user_id:str, auth_token:str, command_prefix='!', max_retry:int=5, REST_API:str = 'api/v1'):
         super().__init__()
-        self.status:Status= Status.OFF
         self.rest_url = URL(server_url.strip())
         self.ws_url = URL(re.sub('^http([s]?)://', lambda m : f'ws{m.group(1)}://', str(self.rest_url)))/'websocket'
         self.user_id = user_id
@@ -49,6 +43,7 @@ class Bot():
         
         self.command_prefix = command_prefix
         
+        self.status:Status= Status.OFF
         self.subscriptions:dict[str, Subscription] = {}
         
         self.retry = 0
@@ -94,9 +89,7 @@ class Bot():
                     else:
                         await self.__process_messages(msg.json())
 
-                            
-
-                
+   
     def fire_event(self, name, *args):
         logger.trace(f'fire event {name} with args {args}')
         for event in self.events.get(name, []):
@@ -105,21 +98,23 @@ class Bot():
             task.add_done_callback(self.background_task.discard)
             
      
-    async def on_command(self, ctx:Context, command, after):
+    async def on_command(self, ctx:Context, command_name, args):
+        '''a predefined on_message listenner, will look for command  command_name to run it'''
         try:
-            coro:Coroutine = self.commands[command]
-            await coro(ctx, after)
+            coro:Coroutine = self.commands[command_name]
+            await coro(ctx, args)
         except Exception as e:
-            logger.warning(f'Exception in command {command}')
+            logger.warning(f'Exception in command {command_name}')
             logger.warning(e)
             logger.warning(traceback.format_exc())
 
 
-    async def send_message(self, roomId:str , content:str):
+    async def send_message(self, room_id:str , content:str):
+        '''send content to the room with rid room_id'''
         try:
             headers = {'X-User-Id': self.user_id, 'X-Auth-Token': self.auth_token}
             async with aiohttp.ClientSession(headers=headers) as session:
-                async with session.post(url=self.rest_url/self.api/'chat.sendMessage', json={'message': {'rid':roomId, 'msg':content}}) as response:
+                async with session.post(url=self.rest_url/self.api/'chat.sendMessage', json={'message': {'rid':room_id, 'msg':content}}) as response:
                     status, rjson =  response.status, await response.json()
                     if status != 200 or rjson.get('success') is not True: 
                         logger.warning(f'chat.sendMessage return status {rjson['status']} {response.status} :  maybe check auth_token or user_id : {rjson['message']}')               
