@@ -56,10 +56,12 @@ class Bot():
                 continue
             
     def fire_event(self, name, *args, **kwargs):
+        print('fire', args, kwargs)
         for event in self.events.get(name, []):
             task = asyncio.create_task(event(*args, **kwargs))
             self.background_task.add(task)
             task.add_done_callback(self.background_task.discard)
+            
             
     async def _connect(self, websocket:ClientConnection):
         if self.status == Status.OFF:
