@@ -109,6 +109,10 @@ class Bot():
             except ValueError:
                 pass
             
+    def fire_event(self, name, *args, **kwargs):
+        for event in self.events.get(name, []):
+            event(*args, **kwargs)
+                
     def listen(self, name: str = None) :
         """A decorator that registers another function as an external
         event listener. Basically this allows you to listen to multiple
@@ -142,4 +146,8 @@ class Bot():
 class Status(Enum):
     OFF = False
     READY = True
+    
+class Event(Enum):
+    ON_MESSAGE = 'on_message'
+    ON_COMMAND = 'on_command'
     
