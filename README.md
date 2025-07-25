@@ -30,6 +30,18 @@ async def on_message(message:Message):
 bot.run()
 ```
 
+
+### events and listenners
+
+events can be trigged with `bot.fire_event(event_name:str)` method or created by adding a listenner `self.add_listener(func:Coroutine, name:str, [aliases:list])` or by the annotation `@bot.listen`. 
+Three events are already defined or trigged in the process :
+- `on_message`, fired on new message
+- `on_command`, fired when a command is trigged in a message, already defined with `bot.on_command` function
+- `on_ready`, fired when the bot is ready
+- `on_close`, never fired, , already defined with `bot.on_close` function which close the websocket service
+
+
+
 ### Bot parameters
 
 - server_url: the server url as `https://myrocketchat.org`
@@ -39,6 +51,7 @@ bot.run()
 - max_retry: number of attempt restart after an uncaught exception, default to 5
 - max_retry_time: seconds before new attemps of connexion, default to 30
 - max_off_time: time in seconds since last ping from server worth a new connection, defaut te 120
+
 
 
 ## logging
