@@ -37,6 +37,8 @@ bot.run()
 - command_prefix: default : '!'
 - user_id: the user id who belongs to the authentification token
 - max_retry: number of attempt restart after an uncaught exception, default to 5
+- max_retry_time: seconds before new attemps of connexion, default to 30
+- max_off_time: time in seconds since last ping from server worth a new connection, defaut te 120
 
 
 ## logging

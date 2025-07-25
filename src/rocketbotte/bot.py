@@ -1,14 +1,15 @@
 import time
+from datetime import datetime
 import asyncio, traceback, re
 from enum import Enum
 from typing import Coroutine
 from rocketbotte.models import Message, Subscription
+from rocketbotte.exceptions import NoPingException
 from collections import deque
 import aiohttp
 from aiohttp import ClientWebSocketResponse, WSMessage
 from yarl import URL
 from loguru import logger
-
 
 class Status(Enum):
     OFF = 'OFF'
@@ -16,6 +17,8 @@ class Status(Enum):
     LOGGED = 'LOGGED'
     SUSCRIBING = 'SUSCRIBING'
     READY = 'READY'
+    CLOSING = 'CLOSING'
+    CLOSED = 'CLOSED'
                     
 
 class Context:
@@ -29,7 +32,7 @@ class Context:
 class Bot():
     API:str = 'api/v1'
     
-    def __init__(self,server_url:str, user_id:str, auth_token:str, command_prefix='!', max_retry:int=5, REST_API:str = 'api/v1'):
+    def __init__(self,server_url:str, user_id:str, auth_token:str, command_prefix='!', max_retry:int=5, REST_API:str = 'api/v1', max_retry_time:int=30, max_off_time:int=120):
         super().__init__()
         self.rest_url = URL(server_url.strip())
         self.ws_url = URL(re.sub('^http([s]?)://', lambda m : f'ws{m.group(1)}://', str(self.rest_url)))/'websocket'
@@ -44,7 +47,11 @@ class Bot():
         
         self.retry = 0
         self.max_retry = max_retry
+        self.max_retry_time = max_retry_time
+        self.max_off_time = max_off_time
+        self.last_ping:datetime
         self.background_task = set()
+        self.watcher_task = None
         self.pending_requests = set()
         self.r_command = re.compile(rf'^\s?{command_prefix}(\w+)\s?(.*)')
         
@@ -52,11 +59,13 @@ class Bot():
         self.commands = {}
         self.already_process = deque(maxlen=100)
         self.add_listener(self.on_command, 'on_command')
+        self.add_listener(self.on_close, 'on_close')
 
     
     def run(self):
         try:
             asyncio.run(self.__run())
+            self.watcher_task.result()
         except Exception as e:
             self.retry += 1
             logger.error(e)
@@ -64,8 +73,8 @@ class Bot():
             if self.retry < self.max_retry:
                 self.status:Status= Status.OFF
                 logger.error('Uncaught exception')
-                logger.info(f'Retry ({self.retry}/{self.max_retry}) in 5 seconds...')
-                time.sleep(5)
+                logger.info(f'Retry ({self.retry}/{self.max_retry}) in {self.max_retry_time} seconds...')
+                time.sleep(self.max_retry_time)
                 self.run()
             else:
                 logger.info('max retry reached, exit program')
@@ -73,8 +82,10 @@ class Bot():
     
     async def __run(self):
         async with aiohttp.ClientSession() as session:
-            async with  session.ws_connect(self.ws_url) as ws:
+            async with  session.ws_connect(self.ws_url) as ws:                
                 await self._connect(ws)
+                
+                self.watcher_task = asyncio.create_task(self.watch_connection(ws))
                 
                 async for msg in ws:
                     await self.pong(msg, ws)
@@ -86,12 +97,45 @@ class Bot():
                         await self.__process_messages(msg.json())
 
    
+   
+    async def watch_connection(self, ws:ClientWebSocketResponse):
+        while True:
+            if self.status in [Status.READY, Status.LOGGED, Status.SUSCRIBING]:
+                if self.status == Status.CLOSING:
+                    await self.close(ws)
+                    break
+                    
+                if self.status == Status.READY:
+                    elapsed_time_ping = datetime.now() - self.last_ping 
+                    logger.trace(f'elapsed time since last ping : {elapsed_time_ping}')
+                    if elapsed_time_ping.seconds > self.max_off_time:
+                        await self.close(ws)
+                        raise NoPingException(f'No ping since {elapsed_time_ping}')
+                await asyncio.sleep(1)
+            await asyncio.sleep(2)
+            
+    
+    def background_event_callback(self, task):
+        self.background_task.discard(task)
+        if task.exception():
+            logger.warning(f"Exception occured during event : {task.exception()!r}")
+            print(f"Exception {task.exception()!r} handled!")
+               
+    async def on_close(self):
+        logger.info('closing websocket')
+        self.status = Status.CLOSING
+        
+    async def close(self, ws:ClientWebSocketResponse):
+        await ws.close()
+        self.status = Status.CLOSED
+        logger.info('websocket closed')
+        
     def fire_event(self, name, *args):
         logger.trace(f'fire event {name} with args {args}')
         for event in self.events.get(name, []):
             task = asyncio.create_task(event(*args))
             self.background_task.add(task)
-            task.add_done_callback(self.background_task.discard)
+            task.add_done_callback(self.background_event_callback)
             
      
     async def on_command(self, ctx:Context, command_name, args):
@@ -142,6 +186,8 @@ class Bot():
             if reponse.get('msg')  == 'connected':
                 logger.info(f'Connection to websocket {self.rest_url}')
                 self.status = Status.CONNECTED
+                self.retry = 0
+                self.last_ping = datetime.now()
         else:
             raise Exception('erreur lors de la connexion')
 
@@ -160,7 +206,9 @@ class Bot():
     async def pong(self, msg:WSMessage,  ws:ClientWebSocketResponse):
         if msg.json()['msg'] == 'ping':
             logger.trace(f'pong')
+            self.last_ping = datetime.now()
             await ws.send_json({"msg": "pong"})
+
                 
     async def _subscribe(self, msg:WSMessage, ws:ClientWebSocketResponse):
         if self.status == Status.LOGGED:
