@@ -1,6 +1,6 @@
 [project]
 name = "rocketbotte"
-version = "0.2.2"
+version = "0.2.3"
 description = "A bot for rocketchat messaging, allowing you to react to messages or commands."
 keywords = [ "rocketchat", "rocket chat", "bot" ]
 authors = [
